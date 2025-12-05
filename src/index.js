@@ -595,7 +595,11 @@ async function handleSlashCommand(input, context) {
         return null;
       }
       console.log(colors.cyan(`\n=== Tool ${target.tool} (${target.id}) ===`));
-      console.log(target.content || colors.dim('<empty>'));
+      if (typeof target.content === 'string') {
+        console.log(renderMarkdown(target.content));
+      } else {
+        console.log(formatToolResult(target.content) || colors.dim('<empty>'));
+      }
       return null;
     }
     case 'sub': {
@@ -1094,6 +1098,11 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
   let reasoningBuffer = '';
   let reasoningStreamActive = false;
   let reasoningShownInStream = false;
+  const streamShowRaw = process.env.MODEL_CLI_STREAM_RAW === '1';
+  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let spinnerIndex = 0;
+  let previewInterval = null;
+  let previewLineActive = false;
   const activeTools = new Map();
   let toolLineVisible = false;
   let toolLineLength = 0;
@@ -1148,9 +1157,33 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
   const registerToolResult =
     typeof options.registerToolResult === 'function' ? options.registerToolResult : null;
   const ensureReasoningClosed = () => {
+    stopPreviewLine();
     if (streamEnabled && reasoningStreamActive) {
       process.stdout.write('\n');
       reasoningStreamActive = false;
+    }
+  };
+  const startPreviewLine = () => {
+    if (!streamEnabled || streamShowRaw || previewInterval) {
+      return;
+    }
+    previewInterval = setInterval(() => {
+      const frame = spinnerFrames[spinnerIndex % spinnerFrames.length];
+      spinnerIndex += 1;
+      const previewText = buffer.slice(-80).replace(/\s+/g, ' ');
+      const line = colors.dim(`[${frame}] ${previewText || '流式接收中…'}`);
+      process.stdout.write(`\r${line}`);
+      previewLineActive = true;
+    }, 150);
+  };
+  const stopPreviewLine = () => {
+    if (previewInterval) {
+      clearInterval(previewInterval);
+      previewInterval = null;
+    }
+    if (previewLineActive) {
+      process.stdout.write('\r');
+      previewLineActive = false;
     }
   };
   const printReasoningBlock = () => {
@@ -1175,13 +1208,18 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
       buffer += chunk;
       if (streamEnabled) {
         ensureReasoningClosed();
-        process.stdout.write(chunk);
+        if (streamShowRaw) {
+          process.stdout.write(chunk);
+        } else {
+          startPreviewLine();
+        }
       }
     },
     onReasoning: (chunk) => {
       if (!chunk) return;
       reasoningBuffer += chunk;
       if (streamEnabled) {
+        stopPreviewLine();
         reasoningShownInStream = true;
         if (!reasoningStreamActive) {
           reasoningStreamActive = true;
@@ -1209,6 +1247,7 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
       noteToolDone(tool);
     },
     onComplete: (finalText) => {
+      stopPreviewLine();
       if (streamEnabled) {
         ensureReasoningClosed();
         clearToolLine();
