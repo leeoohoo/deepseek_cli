@@ -8,6 +8,9 @@ const { ChatSession } = require('./session');
 const { ModelClient } = require('./client');
 const colors = require('./colors');
 const { expandHomePath } = require('./utils');
+const { createSubAgentManager } = require('./subagents');
+const { selectAgent } = require('./subagents/selector');
+const { setSubAgentContext } = require('./subagents/runtime');
 const {
   runStartupWizard,
   runMcpToolsConfigurator,
@@ -23,7 +26,8 @@ const DEFAULT_SYSTEM_PROMPT = `你是一名资深全栈工程师，帮助我在�
 - 用中文解释整体思路，再给出可运行的代码片段。
 - 每当引用项目文件时，标注相对路径并指出需要修改的文件。
 - 主动提醒缺失的测试、潜在风险以及后续步骤。
-- 输出内容保持简洁，必要时使用列表或代码块。`;
+- 输出内容保持简洁，必要时使用列表或代码块。
+- 每个用户任务都先判断是否需要更细分的专家。如果适合，让 invoke_sub_agent 工具自动选择对应的子代理（例如 Python 架构/交付、安全、K8s 等），并把任务描述与技能偏好传给该工具；只有在工具不可用或不合适时再直接回答。`;
 
 const COMMANDS = {
   MODELS: 'models',
@@ -268,10 +272,18 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
   const promptStore = options.promptStore || null;
   const toolHistory = createToolHistory();
   const summaryManager = createSummaryManager(options);
+  const subAgentManager = createSubAgentManager();
   const allowInlineUi =
     options.allowUi !== undefined
       ? options.allowUi
       : Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const updateSubContext = () =>
+    setSubAgentContext({
+      manager: subAgentManager,
+      getClient: () => client,
+      getCurrentModel: () => currentModel,
+    });
+  updateSubContext();
   console.log(
     colors.cyan(
       `Connected to ${initialModel}. Type messages and press Enter to send. Use :help for inline commands.`
@@ -312,6 +324,15 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
     if (!input) {
       continue;
     }
+    const autoHandled = await maybeHandleAutoSubagentRequest(input, {
+      rawInput: input,
+      subAgents: subAgentManager,
+      client,
+      currentModel,
+    });
+    if (autoHandled) {
+      continue;
+    }
     if (input.startsWith('/')) {
       const slashResult = await handleSlashCommand(input, {
         askLine,
@@ -325,6 +346,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
         rl,
         toolHistory,
         promptStore,
+        subAgents: subAgentManager,
       });
       if (slashResult?.type === 'reconfigure') {
         client = slashResult.client;
@@ -339,6 +361,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
             ? slashResult.sessionPrompt
             : resolveSystemPrompt(client, currentModel, systemOverride);
         session.reset(nextPrompt);
+        updateSubContext();
         console.log(colors.yellow('Session updated. Conversation restarted.'));
         console.log(
           colors.cyan(
@@ -349,6 +372,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
         currentModel = slashResult.model;
         const nextPrompt = slashResult.sessionPrompt;
         session.reset(nextPrompt);
+        updateSubContext();
         console.log(colors.yellow(`Switched to model '${currentModel}'.`));
       } else if (slashResult?.type === 'prompt-update') {
         systemOverride = slashResult.useConfigDefault ? undefined : slashResult.systemOverride;
@@ -386,6 +410,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
     }
   }
   rl.close();
+  setSubAgentContext(null);
 }
 
 function handleCommand(command, client, session, currentModel, systemOverride) {
@@ -571,6 +596,9 @@ async function handleSlashCommand(input, context) {
       console.log(target.content || colors.dim('<empty>'));
       return null;
     }
+    case 'sub': {
+      return handleSubagentsCommand(argsText, context);
+    }
     case 'model': {
       if (!context.allowUi) {
         console.log(colors.yellow('Interactive setup is only available in interactive terminals.'));
@@ -655,6 +683,307 @@ async function handleSlashCommand(input, context) {
       console.log(colors.yellow('Unknown slash command. Try /model or /mcp_tools.'));
       return null;
   }
+}
+
+async function handleSubagentsCommand(argsText, context) {
+  const manager = context.subAgents;
+  if (!manager) {
+    console.log(colors.yellow('Sub-agent manager is unavailable in this session.'));
+    return null;
+  }
+  const trimmed = (argsText || '').trim();
+  if (!trimmed || trimmed === 'help') {
+    printSubagentHelp();
+    return null;
+  }
+  const [subCommandRaw, ...restTokens] = trimmed.split(/\s+/);
+  const subCommand = subCommandRaw.toLowerCase();
+  const restText = restTokens.join(' ').trim();
+  switch (subCommand) {
+    case 'plugins':
+    case 'market':
+    case 'marketplace': {
+      const entries = manager.listMarketplace();
+      if (entries.length === 0) {
+        console.log(colors.yellow('Marketplace is empty. Add plugins to the subagents directory.'));
+        return null;
+      }
+      console.log(colors.cyan('\nSub-agent marketplace:'));
+      entries.forEach((entry) => {
+        console.log(`  - ${entry.id} [${entry.category || 'general'}] ${entry.name}`);
+        if (entry.description) {
+          console.log(colors.dim(`      ${entry.description}`));
+        }
+      });
+      console.log(colors.dim('\n使用 /sub install <plugin_id> 安装插件。'));
+      return null;
+    }
+    case 'install': {
+      if (!restTokens[0]) {
+        console.log(colors.yellow('Usage: /sub install <plugin_id>'));
+        return null;
+      }
+      const pluginId = restTokens[0];
+      try {
+        const changed = manager.install(pluginId);
+        if (changed) {
+          console.log(colors.green(`Installed plugin "${pluginId}". 使用 /sub agents 查看代理。`));
+        } else {
+          console.log(colors.green(`Plugin "${pluginId}" 已安装。`));
+        }
+      } catch (err) {
+        console.error(colors.yellow(err.message));
+      }
+      return null;
+    }
+    case 'remove':
+    case 'uninstall': {
+      if (!restTokens[0]) {
+        console.log(colors.yellow('Usage: /sub uninstall <plugin_id>'));
+        return null;
+      }
+      const pluginId = restTokens[0];
+      const removed = manager.uninstall(pluginId);
+      if (removed) {
+        console.log(colors.green(`Removed plugin "${pluginId}".`));
+      } else {
+        console.log(colors.yellow(`Plugin "${pluginId}" 未安装。`));
+      }
+      return null;
+    }
+    case 'agents':
+    case 'list': {
+      const agents = manager.listAgents();
+      if (agents.length === 0) {
+        console.log(colors.yellow('没有可用的 sub-agent。使用 /sub install <plugin> 安装插件。'));
+        return null;
+      }
+      console.log(colors.cyan('\n已安装的 sub-agent：'));
+      agents.forEach((agent) => {
+        console.log(
+          `  - ${agent.id} (${agent.name}) [${agent.pluginId}] model=${agent.model || 'current'}`
+        );
+        if (agent.description) {
+          console.log(colors.dim(`      ${agent.description}`));
+        }
+        if (agent.skills.length > 0) {
+          const skillNames = agent.skills.map((skill) => skill.id).join(', ');
+          console.log(colors.dim(`      skills: ${skillNames}`));
+        }
+      });
+      console.log(
+        colors.dim('\n使用 /sub run <agent_id> <任务描述> [--skills skill1,skill2] 执行 sub-agent。')
+      );
+      return null;
+    }
+    case 'run':
+    case 'use': {
+      const parsed = parseSubAgentRunArgs(restText);
+      if (!parsed || !parsed.agentId || !parsed.taskText) {
+        console.log(
+          colors.yellow(
+            'Usage: /sub run <agent_id> <任务描述> [--skills skill1,skill2]\n例如：/sub run python-architect 设计新的API --skills async-patterns'
+          )
+        );
+        return null;
+      }
+      const agentRef = manager.getAgent(parsed.agentId);
+      if (!agentRef) {
+        console.log(colors.yellow(`未找到 sub-agent "${parsed.agentId}"。`));
+        return null;
+      }
+      try {
+        await executeSubAgentTask(agentRef, parsed.taskText, parsed.skills, {
+          manager,
+          client: context.client,
+          currentModel: context.currentModel,
+        }, { toolHistory: context.toolHistory });
+      } catch (err) {
+        console.error(colors.yellow(`Sub-agent 调用失败: ${err.message}`));
+      }
+      return null;
+    }
+    default:
+      printSubagentHelp();
+      return null;
+  }
+}
+
+function parseSubAgentRunArgs(text) {
+  if (!text) {
+    return null;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const skillsIndex = trimmed.indexOf('--skills');
+  let skillList = [];
+  let statement = trimmed;
+  if (skillsIndex >= 0) {
+    statement = trimmed.slice(0, skillsIndex).trim();
+    const rawSkill = trimmed.slice(skillsIndex + '--skills'.length).trim();
+    skillList = rawSkill
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+  if (!statement) {
+    return null;
+  }
+  const firstSpace = statement.indexOf(' ');
+  if (firstSpace < 0) {
+    return { agentId: statement, taskText: '', skills: skillList };
+  }
+  const agentId = statement.slice(0, firstSpace).trim();
+  const taskText = statement.slice(firstSpace + 1).trim();
+  return { agentId, taskText, skills: skillList };
+}
+
+function printSubagentHelp() {
+  console.log(
+    colors.cyan(
+      '\n/sub 命令：\n  /sub marketplace          列出可用插件\n  /sub install <id>        安装插件\n  /sub uninstall <id>      卸载插件\n  /sub agents              查看已安装的 sub-agent\n  /sub run <agent> <任务> [--skills skill1,skill2] 运行子代理'
+    )
+  );
+}
+
+async function executeSubAgentTask(agentRef, taskText, requestedSkills, context, options = {}) {
+  if (!agentRef || !agentRef.agent || !agentRef.plugin) {
+    throw new Error('Invalid sub-agent reference.');
+  }
+  if (!taskText || !taskText.trim()) {
+    throw new Error('Task description is required for sub-agent execution.');
+  }
+  const manager = context.manager || context.subAgents;
+  if (!manager) {
+    throw new Error('Sub-agent manager unavailable.');
+  }
+  const client = context.client;
+  if (!client) {
+    throw new Error('Model client unavailable.');
+  }
+  const normalizedSkills = Array.isArray(requestedSkills)
+    ? requestedSkills.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  const promptResult = manager.buildSystemPrompt(agentRef, normalizedSkills);
+  const systemPrompt = promptResult.systemPrompt;
+  const usedSkills = promptResult.usedSkills || [];
+  const extraConfig = promptResult.extra || {};
+  const targetModel =
+    agentRef.agent.model ||
+    context.currentModel ||
+    (typeof client.getDefaultModel === 'function' ? client.getDefaultModel() : null);
+  if (!targetModel) {
+    throw new Error('No model available for sub-agent invocation.');
+  }
+  const subSession = new ChatSession(systemPrompt);
+  subSession.addUser(taskText);
+  const reasonLabel = options.reason ? colors.dim(` [${options.reason}]`) : '';
+  console.log(
+    colors.cyan(
+      `\n[sub:${agentRef.agent.id}] ${agentRef.agent.name} (${agentRef.plugin.name}) -> 模型 ${targetModel}${reasonLabel}`
+    )
+  );
+  if (usedSkills.length > 0) {
+    const skillLabel = usedSkills.map((skill) => skill.id).join(', ');
+    console.log(colors.dim(`激活技能: ${skillLabel}`));
+  }
+  const toolHistory = options.toolHistory || null;
+  const reasoningEnabled =
+    extraConfig.reasoning !== undefined ? extraConfig.reasoning : agentRef.agent.reasoning;
+  const printer = createResponsePrinter(`[sub:${agentRef.agent.id}]`, true, {
+    registerToolResult: toolHistory ? (toolName, content) => toolHistory.add(toolName, content) : null,
+  });
+  let response = '';
+  try {
+    response = await client.chat(targetModel, subSession, {
+      stream: true,
+      onToken: printer.onToken,
+      onReasoning: printer.onReasoning,
+      onToolCall: printer.onToolCall,
+      onToolResult: printer.onToolResult,
+      reasoning: reasoningEnabled,
+    });
+  } finally {
+    printer.onComplete(response);
+  }
+  return { response, usedSkills, model: targetModel };
+}
+
+async function maybeHandleAutoSubagentRequest(rawInput, context) {
+  const manager = context.subAgents || context.manager;
+  if (!manager) {
+    return false;
+  }
+  if (!rawInput || !rawInput.trim()) {
+    return false;
+  }
+  const normalized = rawInput.toLowerCase();
+  if (!/invoke_sub_agent|sub\s*agent/.test(normalized)) {
+    return false;
+  }
+  const taskText = rawInput.replace(/invoke_sub_agent/gi, '').trim() || rawInput.trim();
+  const category = inferCategoryFromText(normalized);
+  const skillHints = inferSkillHints(normalized);
+  const agentRef = selectAgent(manager, { category, skills: skillHints });
+  if (!agentRef) {
+    console.log(colors.yellow('没有可用的 sub-agent，请先使用 /sub install 安装插件。'));
+    return true;
+  }
+  try {
+    await executeSubAgentTask(
+      agentRef,
+      taskText,
+      skillHints,
+      {
+        manager,
+        client: context.client,
+        currentModel: context.currentModel,
+      },
+      {
+        reason: 'auto',
+        toolHistory: context.toolHistory,
+      }
+    );
+  } catch (err) {
+    console.error(colors.yellow(`自动调用 sub-agent 失败：${err.message}`));
+  }
+  return true;
+}
+
+function inferCategoryFromText(text) {
+  if (!text) {
+    return null;
+  }
+  if (text.includes('python')) return 'python';
+  if (text.includes('javascript') || text.includes('typescript') || /\bjs\b/.test(text)) {
+    return 'javascript';
+  }
+  if (text.includes('kubernetes') || text.includes('k8')) {
+    return 'kubernetes';
+  }
+  if (text.includes('security') || text.includes('安全')) {
+    return 'security';
+  }
+  if (text.includes('cloud') || text.includes('aws') || text.includes('azure') || text.includes('gcp')) {
+    return 'cloud';
+  }
+  return null;
+}
+
+function inferSkillHints(text) {
+  const hints = new Set();
+  if (!text) {
+    return [];
+  }
+  if (text.includes('async') || text.includes('异步')) {
+    hints.add('async-patterns');
+  }
+  if (text.includes('test') || text.includes('测试')) {
+    hints.add('python-testing');
+  }
+  return Array.from(hints);
 }
 
 function renderAvailableModels(client) {

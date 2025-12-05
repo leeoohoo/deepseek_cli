@@ -1,0 +1,8 @@
+[
+  {
+    "id": "python-development",
+    "name": "Python Development",
+    "category": "language",
+    "description": "包含 Python 架构与交付子代理，示范插件架构。"
+  }
+]

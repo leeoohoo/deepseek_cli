@@ -1,0 +1,50 @@
+{
+  "id": "python-development",
+  "name": "Python Development",
+  "description": "面向 Python Web/后端的多代理插件，示例结构演示如何扩展子代理。",
+  "category": "language",
+  "agents": [
+    {
+      "id": "python-architect",
+      "name": "Python 架构师",
+      "model": "deepseek_reasoner",
+      "reasoning": true,
+      "description": "负责架构设计、API 规划、质量与扩展性评估。",
+      "systemPromptPath": "agents/python-architect.md",
+      "defaultSkills": [
+        "async-patterns"
+      ],
+      "skills": [
+        "async-patterns",
+        "python-testing"
+      ]
+    },
+    {
+      "id": "python-delivery",
+      "name": "Python 交付工程师",
+      "model": "deepseek_chat",
+      "description": "实现特性、修复 bug 并输出详细的执行方案。",
+      "systemPromptPath": "agents/python-delivery.md",
+      "defaultSkills": [
+        "python-testing"
+      ],
+      "skills": [
+        "python-testing"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "async-patterns",
+      "name": "AsyncIO Patterns",
+      "description": "指导 AsyncIO/并发模式与性能取舍。",
+      "instructionsPath": "skills/async-patterns.md"
+    },
+    {
+      "id": "python-testing",
+      "name": "Pytest Patterns",
+      "description": "用于 pytest、fixtures 与分层测试策略的技能包。",
+      "instructionsPath": "skills/python-testing.md"
+    }
+  ]
+}
