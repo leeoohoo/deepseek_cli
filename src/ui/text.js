@@ -1,9 +1,9 @@
-const path = require('path');
-const readline = require('readline');
-const colors = require('../colors');
-const { ConfigError, loadConfig, resolveDefaultConfigPath } = require('../config');
-const { expandHomePath } = require('../utils');
-const { listTools } = require('../tools');
+import path from 'path';
+import readline from 'readline';
+import * as colors from '../colors.js';
+import { ConfigError, loadConfig, resolveDefaultConfigPath } from '../config.js';
+import { expandHomePath } from '../utils.js';
+import { listTools } from '../tools/index.js';
 
 function createPromptInterface() {
   const rl = readline.createInterface({
@@ -20,7 +20,7 @@ function createPromptInterface() {
   };
 }
 
-async function runTextStartupWizard(initialOptions = {}) {
+export async function runTextStartupWizard(initialOptions = {}) {
   const prompt = createPromptInterface();
   try {
     return await runSetupFlow(prompt.ask, initialOptions, { compact: false });
@@ -29,7 +29,7 @@ async function runTextStartupWizard(initialOptions = {}) {
   }
 }
 
-async function runTextInlineConfigurator(ask, initialOptions = {}) {
+export async function runTextInlineConfigurator(ask, initialOptions = {}) {
   return runSetupFlow(ask, initialOptions, { compact: true });
 }
 
@@ -200,6 +200,7 @@ async function runSetupFlow(ask, initialOptions = {}, options = {}) {
       model: modelResult.name,
       system: systemOverride,
       stream,
+      defaults,
     };
     const confirmPrompt = compact
       ? 'Press Enter to apply changes, type "restart" to run again, or "cancel" to abort: '
@@ -231,7 +232,7 @@ function printIntro(compact) {
   console.log(colors.dim('Update config, model, or streaming preferences without leaving chat.\n'));
 }
 
-async function runTextMcpToolsConfigurator(ask, config, modelName) {
+export async function runTextMcpToolsConfigurator(ask, config, modelName) {
   const available = listTools({ detailed: true });
   if (available.length === 0) {
     console.log(colors.yellow('No MCP tools are registered yet.'));
@@ -297,7 +298,7 @@ function printToolChecklist(available, active) {
   console.log('');
 }
 
-async function runTextModelPicker(ask, config, currentModel) {
+export async function runTextModelPicker(ask, config, currentModel) {
   const names = Object.keys(config.models);
   if (names.length === 0) {
     console.log(colors.yellow('No models are configured.'));
@@ -329,7 +330,7 @@ async function runTextModelPicker(ask, config, currentModel) {
   }
 }
 
-async function runTextMcpSetup(ask, servers = []) {
+export async function runTextMcpSetup(ask, servers = []) {
   console.log(colors.cyan('\n=== MCP configuration ==='));
   if (servers.length > 0) {
     console.log(colors.dim('Existing MCP servers:'));
@@ -404,11 +405,3 @@ async function askWithDefault(ask, label, existing) {
   const answer = await ask(colors.magenta(`${promptLabel}: `));
   return answer.trim() ? answer.trim() : existing;
 }
-
-module.exports = {
-  runTextStartupWizard,
-  runTextInlineConfigurator,
-  runTextMcpToolsConfigurator,
-  runTextModelPicker,
-  runTextMcpSetup,
-};

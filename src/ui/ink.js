@@ -1,13 +1,13 @@
-const path = require('path');
-const React = require('react');
-const { render, Box, Text, useApp, useInput } = require('ink');
-const { ConfigError, loadConfig, resolveDefaultConfigPath } = require('../config');
-const { expandHomePath } = require('../utils');
-const { listTools } = require('../tools');
+import path from 'path';
+import React from 'react';
+import { render, Box, Text, useApp, useInput } from 'ink';
+import { ConfigError, loadConfig, resolveDefaultConfigPath } from '../config.js';
+import { expandHomePath } from '../utils.js';
+import { listTools } from '../tools/index.js';
 
 const h = React.createElement;
 
-function isInkSupported() {
+export function isInkSupported() {
   return (
     !process.env.MODEL_CLI_DISABLE_INK &&
     process.stdout &&
@@ -17,15 +17,15 @@ function isInkSupported() {
   );
 }
 
-function runInkStartupWizard(initialOptions = {}) {
+export function runInkStartupWizard(initialOptions = {}) {
   return renderInkApp(WizardApp, { initialOptions, compact: false });
 }
 
-function runInkInlineConfigurator(initialOptions = {}, control = {}) {
+export function runInkInlineConfigurator(initialOptions = {}, control = {}) {
   return renderInkApp(WizardApp, { initialOptions, compact: true }, control);
 }
 
-function runInkMcpToolsConfigurator(config, modelName, control = {}) {
+export function runInkMcpToolsConfigurator(config, modelName, control = {}) {
   const available = listTools({ detailed: true });
   if (!isInkSupported() || available.length === 0) {
     return undefined;
@@ -39,7 +39,7 @@ function runInkMcpToolsConfigurator(config, modelName, control = {}) {
   );
 }
 
-function runInkModelPicker(config, currentModel, control = {}) {
+export function runInkModelPicker(config, currentModel, control = {}) {
   if (!isInkSupported()) {
     return undefined;
   }
@@ -68,7 +68,7 @@ function runInkModelPicker(config, currentModel, control = {}) {
   );
 }
 
-function runInkMcpSetupWizard(servers = [], control = {}) {
+export function runInkMcpSetupWizard(servers = [], control = {}) {
   if (!isInkSupported()) {
     return undefined;
   }
@@ -752,16 +752,7 @@ function McpSummaryStep({ form, onAction }) {
     h(
       Text,
       { color: 'gray' },
-      'Enter to save, "b" to adjust description, "r" to start over, ESC to cancel.'
+      'Press Enter to confirm, "r" to restart, "b" to adjust streaming, or ESC to cancel.'
     )
   );
 }
-
-module.exports = {
-  isInkSupported,
-  runInkStartupWizard,
-  runInkInlineConfigurator,
-  runInkMcpToolsConfigurator,
-  runInkModelPicker,
-  runInkMcpSetupWizard,
-};

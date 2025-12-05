@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
-const path = require('path');
-const { ConfigError, loadConfig, resolveDefaultConfigPath } = require('./config');
-const { ChatSession } = require('./session');
-const { ModelClient } = require('./client');
-const colors = require('./colors');
-const { runStartupWizard } = require('./ui');
-const { initializeMcpRuntime } = require('./mcp/runtime');
-const { loadPromptProfiles } = require('./prompts');
-const { chatLoop, DEFAULT_SYSTEM_PROMPT } = require('./chat-loop');
+import path from 'path';
+import { ConfigError, loadConfig, resolveDefaultConfigPath } from './config.js';
+import { ChatSession } from './session.js';
+import { ModelClient } from './client.js';
+import * as colors from './colors.js';
+import { runStartupWizard } from './ui/index.js';
+import { initializeMcpRuntime } from './mcp/runtime.js';
+import { loadPromptProfiles } from './prompts.js';
+import { chatLoop, DEFAULT_SYSTEM_PROMPT } from './chat-loop.js';
 
 const DEFAULT_MODEL_NAME = 'deepseek_chat';
 
@@ -188,6 +188,15 @@ async function runChat(options) {
   }
   const client = new ModelClient(config);
   const targetSettings = config.getModel(resolvedOptions.model || null);
+
+  // Ensure 'invoke_sub_agent' tool is available, as the default system prompt relies on it
+  if (!Array.isArray(targetSettings.tools)) {
+    targetSettings.tools = [];
+  }
+  if (!targetSettings.tools.includes('invoke_sub_agent')) {
+    targetSettings.tools.push('invoke_sub_agent');
+  }
+
   const sessionSystem =
     resolvedOptions.system !== undefined
       ? resolvedOptions.system

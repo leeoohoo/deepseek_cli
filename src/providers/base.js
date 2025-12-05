@@ -1,6 +1,6 @@
-const { ConfigError } = require('../config');
+import { ConfigError } from '../config.js';
 
-class ModelProvider {
+export class ModelProvider {
   constructor(settings) {
     this.settings = settings;
   }
@@ -65,4 +65,3 @@ class ModelProvider {
   }
 }
 
-module.exports = { ModelProvider };

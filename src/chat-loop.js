@@ -1,19 +1,20 @@
-const readline = require('readline');
-const colors = require('./colors');
-const { ChatSession } = require('./session');
-const { ModelClient } = require('./client');
-const { createSubAgentManager } = require('./subagents');
-const { setSubAgentContext } = require('./subagents/runtime');
-const { createResponsePrinter } = require('./printer');
-const {
+import readline from 'readline';
+import * as colors from './colors.js';
+import { ChatSession } from './session.js';
+import { ModelClient } from './client.js';
+import { createSubAgentManager } from './subagents/index.js';
+import { setSubAgentContext } from './subagents/runtime.js';
+import { createResponsePrinter } from './printer.js';
+import {
   handleCommand,
   handleSlashCommand,
   maybeHandleAutoSubagentRequest,
   resolveSystemPrompt,
-} = require('./commands');
-const { DEFAULT_SYSTEM_PROMPT } = require('./prompts');
+  getCommandCompleter,
+} from './commands.js';
+import { DEFAULT_SYSTEM_PROMPT } from './prompts.js';
 
-async function chatLoop(initialClient, initialModel, session, options = {}) {
+export async function chatLoop(initialClient, initialModel, session, options = {}) {
   let client = initialClient;
   let systemOverride = options.systemOverride;
   let streamResponses = options.stream !== undefined ? options.stream : true;
@@ -42,6 +43,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
     input: process.stdin,
     output: process.stdout,
     historySize: 0,
+    completer: getCommandCompleter({ subAgents: subAgentManager }),
   });
 
   rl.on('SIGINT', () => {
@@ -198,6 +200,10 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
   setSubAgentContext(null);
 }
 
+export {
+  DEFAULT_SYSTEM_PROMPT,
+};
+
 function createToolHistory(limit = 20) {
   const entries = [];
   let counter = 1;
@@ -350,7 +356,3 @@ function extractPlainText(content) {
   return String(content ?? '');
 }
 
-module.exports = {
-  chatLoop,
-  DEFAULT_SYSTEM_PROMPT,
-};

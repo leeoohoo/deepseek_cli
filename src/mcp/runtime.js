@@ -1,10 +1,10 @@
-const path = require('path');
-const colors = require('../colors');
-const { loadMcpConfig } = require('../mcp');
-const { registerTool } = require('../tools');
+import path from 'path';
+import * as colors from '../colors.js';
+import { loadMcpConfig } from '../mcp.js';
+import { registerTool } from '../tools/index.js';
 
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 async function initializeMcpRuntime(configPath, sessionRoot = process.cwd()) {
   let servers;
@@ -353,6 +353,4 @@ function shellSplit(input) {
   return tokens;
 }
 
-module.exports = {
-  initializeMcpRuntime,
-};
+export { initializeMcpRuntime };

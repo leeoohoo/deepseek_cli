@@ -1,0 +1,19 @@
+{
+  "servers": [
+    {
+      "name": "project_files",
+      "url": "cmd://node /Users/lilei/project/learn/model_cli/deepseek_cli/mcp_servers/filesystem-server.js --root . --mode read --name project_files",
+      "description": "浏览/搜索项目文件（只读，默认 root=.）。"
+    },
+    {
+      "name": "code_writer",
+      "url": "cmd://node /Users/lilei/project/learn/model_cli/deepseek_cli/mcp_servers/filesystem-server.js --root . --write --name code_writer",
+      "description": "写入/追加/删除项目文件。局部修改请优先用 apply_patch（支持标准 diff）；write_file 仅在需要整块覆盖或追加日志时使用。"
+    },
+    {
+      "name": "shell_tasks",
+      "url": "cmd://node /Users/lilei/project/learn/model_cli/deepseek_cli/mcp_servers/shell-server.js --root . --name shell_tasks",
+      "description": "在受限 root 内执行常见 shell 命令、列出目录等操作。"
+    }
+  ]
+}

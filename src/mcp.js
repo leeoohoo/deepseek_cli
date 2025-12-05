@@ -1,6 +1,10 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import * as colors from './colors.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const CLI_ROOT = path.resolve(__dirname, '..');
 
 function resolveMcpPath(configPath) {
@@ -24,6 +28,7 @@ function loadMcpConfig(configPath) {
       servers = defaultsFactory().map(normalizeServer);
       writeMcpFile(target, servers);
     }
+    console.log(colors.dim(`[MCP] Using config: ${target}`));
     return { path: target, servers };
   } catch (err) {
     throw new Error(`Failed to read MCP config ${target}: ${err.message}`);
@@ -198,7 +203,7 @@ function shellSplit(input) {
   return tokens;
 }
 
-module.exports = {
+export {
   loadMcpConfig,
   saveMcpConfig,
   resolveMcpPath,

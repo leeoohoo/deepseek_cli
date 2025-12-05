@@ -1,7 +1,7 @@
-const { registerTool } = require('./registry');
-const { ChatSession } = require('../session');
-const { getSubAgentContext } = require('../subagents/runtime');
-const { selectAgent } = require('../subagents/selector');
+import { registerTool } from './registry.js';
+import { ChatSession } from '../session.js';
+import { getSubAgentContext } from '../subagents/runtime.js';
+import { selectAgent } from '../subagents/selector.js';
 
 registerTool({
   name: 'get_current_time',
@@ -90,3 +90,4 @@ registerTool({
     };
   },
 });
+

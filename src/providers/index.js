@@ -1,13 +1,13 @@
-const { ConfigError } = require('../config');
-const { OpenAIProvider } = require('./openai');
+import { ConfigError } from '../config.js';
+import { OpenAIProvider } from './openai.js';
 
 const registry = new Map([[OpenAIProvider.name, OpenAIProvider]]);
 
-function registerProvider(name, provider) {
+export function registerProvider(name, provider) {
   registry.set(name, provider);
 }
 
-function createProvider(providerName, settings) {
+export function createProvider(providerName, settings) {
   const Provider = registry.get(providerName);
   if (!Provider) {
     const available = Array.from(registry.keys()).sort().join(', ') || '<none>';
@@ -16,12 +16,7 @@ function createProvider(providerName, settings) {
   return new Provider(settings);
 }
 
-function listProviders() {
+export function listProviders() {
   return Array.from(registry.keys());
 }
 
-module.exports = {
-  createProvider,
-  listProviders,
-  registerProvider,
-};

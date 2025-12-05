@@ -1,10 +1,11 @@
-const { registerTool, resolveToolset, listTools } = require('./registry');
+import { registerTool, resolveToolset, listTools } from './registry.js';
 
 // Register built-in examples.
-require('./builtin');
+import './builtin.js';
 
-module.exports = {
+export {
   registerTool,
   resolveToolset,
   listTools,
 };
+

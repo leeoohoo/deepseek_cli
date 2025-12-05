@@ -1,8 +1,8 @@
-const { ConfigError } = require('./config');
-const { createProvider } = require('./providers');
-const { resolveToolset } = require('./tools');
+import { ConfigError } from './config.js';
+import { createProvider } from './providers/index.js';
+import { resolveToolset } from './tools/index.js';
 
-class ModelClient {
+export class ModelClient {
   constructor(config) {
     this.config = config;
     this.providerCache = new Map();
@@ -335,10 +335,7 @@ function logToolArgumentParseFailure(stage, toolName, argsRaw, error) {
   }
 }
 
-module.exports = {
-  ModelClient,
-  _internal: {
-    parseToolArguments,
-    repairJsonString,
-  },
+export const _internal = {
+  parseToolArguments,
+  repairJsonString,
 };

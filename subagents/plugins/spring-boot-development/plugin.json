@@ -1,0 +1,60 @@
+{
+  "id": "spring-boot-development",
+  "name": "Spring Boot Development",
+  "description": "专业的 Spring Boot 后端开发套件，包含架构设计与代码实现 Agent。",
+  "category": "language",
+  "agents": [
+    {
+      "id": "spring-architect",
+      "name": "Spring 架构师",
+      "model": "deepseek_reasoner",
+      "reasoning": true,
+      "description": "负责 Spring Boot 项目结构设计、技术选型、Maven/Gradle 依赖管理。",
+      "systemPromptPath": "agents/spring-architect.md",
+      "defaultSkills": [
+        "spring-boot-best-practices"
+      ],
+      "skills": [
+        "spring-boot-best-practices",
+        "spring-data-jpa",
+        "spring-web-mvc"
+      ]
+    },
+    {
+      "id": "spring-coder",
+      "name": "Spring 开发工程师",
+      "model": "deepseek_chat",
+      "description": "负责编写具体的 Controller、Service、Repository 代码及单元测试。",
+      "systemPromptPath": "agents/spring-coder.md",
+      "defaultSkills": [
+        "spring-web-mvc",
+        "spring-data-jpa"
+      ],
+      "skills": [
+        "spring-web-mvc",
+        "spring-data-jpa",
+        "spring-boot-best-practices"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "spring-web-mvc",
+      "name": "Spring Web MVC",
+      "description": "RESTful API 设计、Controller Advice 异常处理、DTO 模式。",
+      "instructionsPath": "skills/spring-web-mvc.md"
+    },
+    {
+      "id": "spring-data-jpa",
+      "name": "Spring Data JPA",
+      "description": "Entity 定义、Repository 接口、Transaction 管理、Hibernate 最佳实践。",
+      "instructionsPath": "skills/spring-data-jpa.md"
+    },
+    {
+      "id": "spring-boot-best-practices",
+      "name": "Spring Boot Best Practices",
+      "description": "项目分层结构、配置管理 (application.yml)、依赖注入规范。",
+      "instructionsPath": "skills/spring-boot-best-practices.md"
+    }
+  ]
+}

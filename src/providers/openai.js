@@ -1,7 +1,7 @@
-const OpenAI = require('openai');
-const { ModelProvider } = require('./base');
+import OpenAI from 'openai';
+import { ModelProvider } from './base.js';
 
-class OpenAIProvider extends ModelProvider {
+export class OpenAIProvider extends ModelProvider {
   static name = 'openai';
 
   constructor(settings) {
@@ -201,4 +201,3 @@ class OpenAIProvider extends ModelProvider {
   }
 }
 
-module.exports = { OpenAIProvider };

@@ -1,8 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-const { getHomeDir } = require('../utils');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getHomeDir } from '../utils.js';
 
-function createSubAgentManager(options = {}) {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export function createSubAgentManager(options = {}) {
   return new SubAgentManager(options);
 }
 
@@ -292,7 +296,3 @@ class SubAgentManager {
     return skill._instructions;
   }
 }
-
-module.exports = {
-  createSubAgentManager,
-};

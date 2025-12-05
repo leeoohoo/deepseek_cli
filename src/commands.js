@@ -1,16 +1,27 @@
-const fs = require('fs');
-const path = require('path');
-const colors = require('./colors');
-const { ChatSession } = require('./session');
-const { createResponsePrinter } = require('./printer');
-const { runModelPicker, runMcpSetup, runMcpToolsConfigurator } = require('./ui');
-const { loadMcpConfig, saveMcpConfig } = require('./mcp');
-const { expandHomePath } = require('./utils');
-const { selectAgent } = require('./subagents/selector');
-const { renderMarkdown } = require('./markdown');
-const { DEFAULT_SYSTEM_PROMPT } = require('./prompts');
+import fs from 'fs';
+import path from 'path';
+import * as colors from './colors.js';
+import { ChatSession } from './session.js';
+import { createResponsePrinter } from './printer.js';
+import { runModelPicker, runMcpSetup, runMcpToolsConfigurator } from './ui/index.js';
+import { loadMcpConfig, saveMcpConfig } from './mcp.js';
+import { expandHomePath } from './utils.js';
+import { selectAgent } from './subagents/selector.js';
+import { renderMarkdown } from './markdown.js';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  loadSystemPromptConfig,
+  composeSystemPrompt,
+} from './prompts.js';
 
-function handleCommand(command, client, session, currentModel, systemOverride) {
+export function handleCommand(
+  command,
+  client,
+  session,
+  currentModel,
+  systemOverride,
+  configPath
+) {
   const [name, ...rest] = command.slice(1).trim().split(/\s+/);
   const argument = rest.join(' ').trim();
   switch (name) {
@@ -31,7 +42,9 @@ function handleCommand(command, client, session, currentModel, systemOverride) {
       console.log(renderAvailableModels(client));
       return currentModel;
     case 'reset': {
-      const systemPrompt = resolveSystemPrompt(client, currentModel, systemOverride);
+      const systemPrompt = resolveSystemPrompt(client, currentModel, systemOverride, {
+        configPath,
+      });
       session.reset(systemPrompt);
       console.log(colors.yellow('Conversation cleared.'));
       return currentModel;
@@ -47,7 +60,9 @@ function handleCommand(command, client, session, currentModel, systemOverride) {
         console.error(colors.yellow(err.message));
         return currentModel;
       }
-      session.reset(resolveSystemPrompt(client, argument, systemOverride));
+      session.reset(
+        resolveSystemPrompt(client, argument, systemOverride, { configPath })
+      );
       console.log(colors.yellow(`Switched to model '${argument}'.`));
       return argument;
     case 'save':
@@ -65,7 +80,7 @@ function handleCommand(command, client, session, currentModel, systemOverride) {
   }
 }
 
-async function handleSlashCommand(input, context) {
+export async function handleSlashCommand(input, context) {
   const command = input.slice(1).trim();
   if (!command) {
     console.log(colors.yellow('Slash commands: /model, /prompt, /mcp, /mcp_set, /mcp_tools, /tool.'));
@@ -125,7 +140,8 @@ async function handleSlashCommand(input, context) {
       const current = resolveSystemPrompt(
         context.client,
         context.currentModel,
-        context.systemOverride
+        context.systemOverride,
+        { configPath: context.configPath }
       );
       console.log(colors.cyan('\n=== 当前 System Prompt ==='));
       console.log(current ? current : colors.dim('<未设置，将发送无 system prompt>'));
@@ -144,7 +160,8 @@ async function handleSlashCommand(input, context) {
         return { type: 'prompt-update', systemOverride: '' };
       }
       if (trimmed.toLowerCase() === '!default') {
-        return { type: 'prompt-update', systemOverride: DEFAULT_SYSTEM_PROMPT };
+        const systemConfig = loadSystemPromptConfig(context.configPath);
+        return { type: 'prompt-update', systemOverride: systemConfig.defaultPrompt };
       }
       if (trimmed.toLowerCase() === '!config') {
         return { type: 'prompt-update', useConfigDefault: true };
@@ -320,20 +337,49 @@ async function handleSubagentsCommand(argsText, context) {
       return null;
     }
     case 'install': {
-      if (!restTokens[0]) {
-        console.log(colors.yellow('Usage: /sub install <plugin_id>'));
+      const pluginId = restTokens[0];
+      if (!pluginId) {
+        const entries = manager.listMarketplace();
+        const installedSet = new Set(manager.listInstalledPlugins().map(p => p.id));
+        
+        const uninstalled = entries.filter(e => !installedSet.has(e.id));
+        const installed = entries.filter(e => installedSet.has(e.id));
+
+        if (uninstalled.length === 0 && installed.length === 0) {
+          console.log(colors.yellow('Marketplace is empty. No plugins available to install.'));
+          return null;
+        }
+
+        if (uninstalled.length > 0) {
+          console.log(colors.cyan('\nAvailable plugins to install:'));
+          uninstalled.forEach((entry) => {
+            console.log(`  - ${entry.id}\n      ${entry.name} - ${entry.description || ''}`);
+          });
+        } else {
+          console.log(colors.green('\nAll available plugins are already installed.'));
+        }
+
+        if (installed.length > 0) {
+          console.log(colors.dim('\nInstalled plugins:'));
+          installed.forEach((entry) => {
+             console.log(colors.dim(`  - ${entry.id} (installed)`));
+          });
+        }
+        
+        console.log(colors.dim('\nUsage: /sub install <plugin_id> (Tip: press Tab to autocomplete)'));
         return null;
       }
-      const pluginId = restTokens[0];
       try {
         const changed = manager.install(pluginId);
         if (changed) {
-          console.log(colors.green(`Installed plugin "${pluginId}". 使用 /sub agents 查看代理。`));
+          console.log(colors.green(`✓ Successfully installed plugin "${pluginId}".`));
+          console.log(colors.dim('Use /sub agents to see available agents.'));
         } else {
-          console.log(colors.green(`Plugin "${pluginId}" 已安装。`));
+          console.log(colors.green(`Plugin "${pluginId}" is already installed.`));
         }
       } catch (err) {
-        console.error(colors.yellow(err.message));
+        console.error(colors.yellow(`Installation failed: ${err.message}`));
+        console.log(colors.dim('Tip: Use /sub install to see valid plugin IDs.'));
       }
       return null;
     }
@@ -449,7 +495,7 @@ function printSubagentHelp() {
   );
 }
 
-async function executeSubAgentTask(agentRef, taskText, requestedSkills, context, options = {}) {
+export async function executeSubAgentTask(agentRef, taskText, requestedSkills, context, options = {}) {
   if (!agentRef || !agentRef.agent || !agentRef.plugin) {
     throw new Error('Invalid sub-agent reference.');
   }
@@ -512,7 +558,7 @@ async function executeSubAgentTask(agentRef, taskText, requestedSkills, context,
   return { response, usedSkills, model: targetModel };
 }
 
-async function maybeHandleAutoSubagentRequest(rawInput, context) {
+export async function maybeHandleAutoSubagentRequest(rawInput, context) {
   const manager = context.subAgents || context.manager;
   if (!manager) {
     return false;
@@ -599,12 +645,18 @@ function renderAvailableModels(client) {
   return lines.join('\n');
 }
 
-function resolveSystemPrompt(client, modelName, systemOverride) {
-  if (systemOverride !== undefined) {
-    return systemOverride;
-  }
+export function resolveSystemPrompt(client, modelName, systemOverride) {
+  const options =
+    arguments.length >= 4 && arguments[3] && typeof arguments[3] === 'object'
+      ? arguments[3]
+      : {};
   const settings = client.config.getModel(modelName);
-  return settings.system_prompt || DEFAULT_SYSTEM_PROMPT;
+  const composed = composeSystemPrompt({
+    configPath: options.configPath,
+    systemOverride,
+    modelPrompt: settings.system_prompt,
+  });
+  return composed.prompt;
 }
 
 function printMcpServers(servers, configPath) {
@@ -688,10 +740,105 @@ function writeTranscript(targetPath, session) {
   fs.writeFileSync(targetPath, lines.join('\n'), 'utf8');
 }
 
-module.exports = {
-  handleCommand,
-  handleSlashCommand,
-  maybeHandleAutoSubagentRequest,
-  resolveSystemPrompt,
-  executeSubAgentTask,
-};
+const COLON_COMMANDS = [
+  'help',
+  'models',
+  'use',
+  'reset',
+  'save',
+  'exit',
+  'quit',
+  'q',
+];
+
+const SLASH_COMMANDS = [
+  'model',
+  'prompt',
+  'mcp',
+  'mcp_set',
+  'mcp_tools',
+  'tool',
+  'sub',
+];
+
+export function getCommandCompleter(context = {}) {
+  return (line) => {
+    const input = line; 
+
+    // 1. Colon commands
+    if (input.startsWith(':')) {
+      const hits = COLON_COMMANDS.map((c) => `:${c}`).filter((c) => c.startsWith(input));
+      return [hits.length ? hits : [], input];
+    }
+
+    // 2. Slash commands
+    if (input.startsWith('/')) {
+      // Check if it's a sub-command like "/sub "
+      if (input.startsWith('/sub ')) {
+        const rest = input.slice(5); // remove "/sub "
+        // If we are in "/sub <something>", we are completing the subcommand
+        const tokens = rest.split(/\s+/);
+        // If the user typed "/sub install ", tokens is ["install", ""]
+        // If the user typed "/sub install", tokens is ["install"]
+        
+        // Case: /sub <subcommand>
+        if (tokens.length <= 1 && !input.endsWith(' ')) {
+          // Completing the subcommand itself
+          const subCmd = tokens[0] || '';
+          const SUB_COMMANDS = ['install', 'uninstall', 'list', 'agents', 'run', 'marketplace', 'help'];
+          const hits = SUB_COMMANDS.filter((c) => c.startsWith(subCmd));
+          // We need to return the whole line or the substring?
+          // readline expects [matches, substring_to_match]
+          // If we return matches as just "install", "list", and substring as "ins", it replaces "ins" with "install".
+          // The line becomes "/sub install". correct.
+          return [hits.length ? hits : [], subCmd];
+        }
+
+        // Case: /sub <subcommand> <arg>
+        // If tokens.length > 1 or (tokens.length === 1 and input ends with space)
+        const subCmd = tokens[0];
+        const argPrefix = tokens.length > 1 ? tokens[tokens.length - 1] : '';
+        
+        // Only complete if we are on the second token
+        // If tokens is ["install", ""] (user typed "/sub install "), we complete the empty arg
+        
+        if (['install', 'uninstall', 'run', 'use'].includes(subCmd)) {
+           const manager = context.subAgents;
+           if (!manager) return [[], argPrefix];
+
+           let candidates = [];
+           if (subCmd === 'install') {
+             // List all marketplace plugins (maybe filter installed? User said "show uninstalled")
+             // Let's show all but prioritize or just list all IDs.
+             const market = manager.listMarketplace() || [];
+             const installed = new Set(manager.listInstalledPlugins().map(p => p.id));
+             // Filter to uninstalled ones for better UX, or all?
+             // User said: "当我输入 install 就展示我没有安装的 agent 列表"
+             // So let's complete uninstalled ones primarily.
+             candidates = market
+               .filter(p => !installed.has(p.id))
+               .map(p => p.id);
+           } else if (subCmd === 'uninstall' || subCmd === 'remove') {
+             const installed = manager.listInstalledPlugins() || [];
+             candidates = installed.map(p => p.id);
+           } else if (subCmd === 'run' || subCmd === 'use') {
+             // List agents
+             const agents = manager.listAgents() || [];
+             candidates = agents.map(a => a.id);
+           }
+
+           const hits = candidates.filter(c => c.startsWith(argPrefix));
+           return [hits.length ? hits : [], argPrefix];
+        }
+        
+        return [[], argPrefix];
+      }
+
+      // Basic slash command completion (top level)
+      const hits = SLASH_COMMANDS.map((c) => `/${c}`).filter((c) => c.startsWith(input));
+      return [hits.length ? hits : [], input];
+    }
+
+    return [[], input];
+  };
+}

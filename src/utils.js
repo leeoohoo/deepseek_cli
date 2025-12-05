@@ -1,4 +1,4 @@
-const path = require('path');
+import path from 'path';
 
 function expandHomePath(target) {
   if (!target || !target.startsWith('~')) {
@@ -21,7 +21,7 @@ function getHomeDir() {
   return process.env.HOME || process.env.USERPROFILE || '';
 }
 
-module.exports = {
+export {
   expandHomePath,
   getHomeDir,
 };

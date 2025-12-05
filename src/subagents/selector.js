@@ -1,4 +1,4 @@
-function selectAgent(manager, options = {}) {
+export function selectAgent(manager, options = {}) {
   if (!manager) return null;
   if (options.agentId) {
     const direct = manager.getAgent(options.agentId);
@@ -48,6 +48,3 @@ function selectAgent(manager, options = {}) {
   return manager.getAgent(best.id);
 }
 
-module.exports = {
-  selectAgent,
-};

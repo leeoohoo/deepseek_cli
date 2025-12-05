@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const YAML = require('yaml');
+import fs from 'fs';
+import path from 'path';
+import YAML from 'yaml';
 
 class ConfigError extends Error {
   constructor(message) {
@@ -158,7 +158,7 @@ function findModelsUpwards(startDir) {
   return null;
 }
 
-module.exports = {
+export {
   AppConfig,
   ConfigError,
   loadConfig,

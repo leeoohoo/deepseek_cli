@@ -1,7 +1,7 @@
-const colors = require('./colors');
-const { renderMarkdown } = require('./markdown');
+import * as colors from './colors.js';
+import { renderMarkdown } from './markdown.js';
 
-function createResponsePrinter(model, streamEnabled, options = {}) {
+export function createResponsePrinter(model, streamEnabled, options = {}) {
   let buffer = '';
   let reasoningBuffer = '';
   let reasoningStreamActive = false;
@@ -293,6 +293,4 @@ function extractSearchFiles(text) {
   return Array.from(seen);
 }
 
-module.exports = {
-  createResponsePrinter,
-};
+

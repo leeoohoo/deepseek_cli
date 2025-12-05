@@ -71,4 +71,4 @@ class ChatSession {
   }
 }
 
-module.exports = { ChatSession };
+export { ChatSession };

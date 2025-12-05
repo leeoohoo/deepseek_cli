@@ -1,7 +1,7 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const YAML = require('yaml');
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import YAML from 'yaml';
 
 const DEFAULT_PROMPTS = {
   daily_coding: `你是终端内的资深全栈开发助手，帮助我实现功能、解释思路，输出风格：
@@ -18,6 +18,12 @@ const DEFAULT_PROMPTS = {
 2. 提出最多 3 个排查步骤，按优先级排列；
 3. 根据我反馈持续迭代，直到问题解决。`,
 };
+
+const DEFAULT_INTERNAL_SYSTEM_PROMPT = `你运行在本地 Deepseek CLI 中，必须始终遵守以下准则，不可省略：
+- 保持回答紧凑，用中文给出结论和下一步；涉及文件或命令时写出相对路径/命令。
+- 任何需要代码修改的场景，先说明改动点与风险，再给出步骤或补丁。
+- 充分使用可用的 MCP 工具（文件、Shell、Task 管理等）以及 invoke_sub_agent；能用工具获取信息或执行操作时，避免主观臆测。
+- 如需拆解/跟踪任务，优先调用可用的任务类 MCP 工具记录/更新条目；缺少工具或信息时先澄清。`;
 
 const DEFAULT_SYSTEM_PROMPT = `你是一名资深全栈工程师，帮助我在终端里完成日常开发工作。优先：
 - 用中文解释整体思路，再给出可运行的代码片段。
@@ -91,9 +97,75 @@ function getDefaultConfigDir() {
   return path.resolve(process.cwd(), '.deepseek_cli');
 }
 
-module.exports = {
+function resolveSystemPromptPath(configPath) {
+  const baseDir = configPath ? path.dirname(configPath) : getDefaultConfigDir();
+  return path.join(baseDir, 'system-prompt.yaml');
+}
+
+function ensureSystemPromptFile(filePath) {
+  if (fs.existsSync(filePath)) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = {
+    internal: DEFAULT_INTERNAL_SYSTEM_PROMPT,
+    default: DEFAULT_SYSTEM_PROMPT,
+  };
+  fs.writeFileSync(filePath, YAML.stringify(payload), 'utf8');
+}
+
+function loadSystemPromptConfig(configPath) {
+  const filePath = resolveSystemPromptPath(configPath);
+  ensureSystemPromptFile(filePath);
+  let parsed;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    parsed = YAML.parse(raw) || {};
+  } catch (err) {
+    console.error(
+      `[prompts] Failed to read ${filePath}: ${err.message}. Falling back to defaults.`
+    );
+    parsed = {};
+  }
+  const internal =
+    typeof parsed.internal === 'string' && parsed.internal.trim()
+      ? parsed.internal.trim()
+      : DEFAULT_INTERNAL_SYSTEM_PROMPT;
+  const defaultPrompt =
+    typeof parsed.default === 'string' && parsed.default.trim()
+      ? parsed.default.trim()
+      : DEFAULT_SYSTEM_PROMPT;
+  return {
+    path: filePath,
+    internal,
+    defaultPrompt,
+  };
+}
+
+function composeSystemPrompt({ configPath, systemOverride, modelPrompt }) {
+  const config = loadSystemPromptConfig(configPath);
+  const sections = [];
+  if (config.internal) {
+    sections.push(config.internal.trim());
+  }
+  const userSection =
+    systemOverride !== undefined ? systemOverride : modelPrompt || config.defaultPrompt;
+  if (userSection && String(userSection).trim()) {
+    sections.push(String(userSection).trim());
+  }
+  return {
+    prompt: sections.join('\n\n'),
+    path: config.path,
+  };
+}
+
+export {
   loadPromptProfiles,
   savePromptProfiles,
   resolvePromptPath,
+  resolveSystemPromptPath,
+  loadSystemPromptConfig,
+  composeSystemPrompt,
   DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_INTERNAL_SYSTEM_PROMPT,
 };

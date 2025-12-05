@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-const path = require('path');
-const fs = require('fs');
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { z } = require('zod');
+import path from 'path';
+import fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
 const execAsync = promisify(exec);
 const args = parseArgs(process.argv.slice(2));

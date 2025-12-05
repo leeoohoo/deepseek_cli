@@ -1,6 +1,6 @@
-const colors = require('./colors');
+import * as colors from './colors.js';
 
-function renderMarkdown(input) {
+export function renderMarkdown(input) {
   if (!input) {
     return '';
   }
@@ -71,7 +71,3 @@ function formatInline(text) {
   result = result.replace(/\*(.+?)\*/g, (_, value) => colors.italic(value));
   return result;
 }
-
-module.exports = {
-  renderMarkdown,
-};

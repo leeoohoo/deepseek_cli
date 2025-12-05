@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-const fs = require('fs');
+import fs from 'fs';
 const fsp = fs.promises;
-const path = require('path');
-const os = require('os');
-const { spawn } = require('child_process');
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { z } = require('zod');
+import path from 'path';
+import os from 'os';
+import { spawn } from 'child_process';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help || args.h) {

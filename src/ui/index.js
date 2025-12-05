@@ -1,14 +1,13 @@
-const textUi = require('./text');
+import * as textUi from './text.js';
 
 let inkUi = null;
 try {
-  // eslint-disable-next-line global-require
-  inkUi = require('./ink');
+  inkUi = await import('./ink.js');
 } catch {
   inkUi = null;
 }
 
-function inkAvailable() {
+export function inkAvailable() {
   return Boolean(inkUi && inkUi.isInkSupported());
 }
 
@@ -26,7 +25,7 @@ async function tryInk(fn) {
   }
 }
 
-async function runStartupWizard(initialOptions = {}) {
+export async function runStartupWizard(initialOptions = {}) {
   const result = await tryInk(() => inkUi.runInkStartupWizard(initialOptions));
   if (result !== undefined) {
     return result;
@@ -34,7 +33,7 @@ async function runStartupWizard(initialOptions = {}) {
   return textUi.runTextStartupWizard(initialOptions);
 }
 
-async function runInlineConfigurator(ask, initialOptions = {}, control = {}) {
+export async function runInlineConfigurator(ask, initialOptions = {}, control = {}) {
   const result = await tryInk(() =>
     inkUi.runInkInlineConfigurator(initialOptions, control)
   );
@@ -44,7 +43,7 @@ async function runInlineConfigurator(ask, initialOptions = {}, control = {}) {
   return textUi.runTextInlineConfigurator(ask, initialOptions);
 }
 
-async function runMcpToolsConfigurator(ask, config, modelName, control = {}) {
+export async function runMcpToolsConfigurator(ask, config, modelName, control = {}) {
   const result = await tryInk(() =>
     inkUi.runInkMcpToolsConfigurator(config, modelName, control)
   );
@@ -54,7 +53,7 @@ async function runMcpToolsConfigurator(ask, config, modelName, control = {}) {
   return textUi.runTextMcpToolsConfigurator(ask, config, modelName);
 }
 
-async function runModelPicker(ask, config, currentModel, control = {}) {
+export async function runModelPicker(ask, config, currentModel, control = {}) {
   const result = await tryInk(() =>
     inkUi.runInkModelPicker(config, currentModel, control)
   );
@@ -64,7 +63,7 @@ async function runModelPicker(ask, config, currentModel, control = {}) {
   return textUi.runTextModelPicker(ask, config, currentModel);
 }
 
-async function runMcpSetup(ask, servers = [], control = {}) {
+export async function runMcpSetup(ask, servers = [], control = {}) {
   const result = await tryInk(() =>
     inkUi.runInkMcpSetupWizard(servers, control)
   );
@@ -73,11 +72,3 @@ async function runMcpSetup(ask, servers = [], control = {}) {
   }
   return textUi.runTextMcpSetup(ask, servers);
 }
-
-module.exports = {
-  runStartupWizard,
-  runInlineConfigurator,
-  runMcpToolsConfigurator,
-  runModelPicker,
-  runMcpSetup,
-};

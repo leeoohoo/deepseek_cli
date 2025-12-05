@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "project_files",
+      "url": "cmd://node /Users/lilei/project/learn/model_cli/deepseek_cli/mcp_servers/filesystem-server.js --root . --mode read --name project_files",
+      "description": "Browse/Search project files (Read-only, defaults to root=.)."
+    },
+    {
+      "name": "desktop_commander",
+      "url": "cmd://npx -y @wonderwhy-er/desktop-commander",
+      "description": "Desktop automation tools (via @wonderwhy-er/desktop-commander)"
+    }
+  ]
+}

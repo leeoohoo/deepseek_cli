@@ -4,5 +4,11 @@
     "name": "Python Development",
     "category": "language",
     "description": "包含 Python 架构与交付子代理，示范插件架构。"
+  },
+  {
+    "id": "spring-boot-development",
+    "name": "Spring Boot Development",
+    "category": "language",
+    "description": "专业的 Spring Boot 后端开发套件，包含架构设计与代码实现 Agent。"
   }
 ]

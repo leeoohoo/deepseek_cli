@@ -1,8 +1,8 @@
-const { ConfigError } = require('../config');
+import { ConfigError } from '../config.js';
 
 const registry = new Map();
 
-function registerTool(definition) {
+export function registerTool(definition) {
   if (!definition || typeof definition !== 'object') {
     throw new Error('Tool definition must be an object');
   }
@@ -24,7 +24,7 @@ function registerTool(definition) {
   });
 }
 
-function resolveToolset(names = []) {
+export function resolveToolset(names = []) {
   if (!names || names.length === 0) {
     return [];
   }
@@ -50,7 +50,7 @@ function resolveToolset(names = []) {
   });
 }
 
-function listTools(options = {}) {
+export function listTools(options = {}) {
   if (options.detailed) {
     return Array.from(registry.values()).map((entry) => ({
       name: entry.name,
@@ -61,8 +61,3 @@ function listTools(options = {}) {
   return Array.from(registry.keys());
 }
 
-module.exports = {
-  registerTool,
-  resolveToolset,
-  listTools,
-};
