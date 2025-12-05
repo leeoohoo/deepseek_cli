@@ -19,6 +19,13 @@ const DEFAULT_PROMPTS = {
 3. 根据我反馈持续迭代，直到问题解决。`,
 };
 
+const DEFAULT_SYSTEM_PROMPT = `你是一名资深全栈工程师，帮助我在终端里完成日常开发工作。优先：
+- 用中文解释整体思路，再给出可运行的代码片段。
+- 每当引用项目文件时，标注相对路径并指出需要修改的文件。
+- 主动提醒缺失的测试、潜在风险以及后续步骤。
+- 输出内容保持简洁，必要时使用列表或代码块。
+- 每个用户任务都先判断是否需要更细分的专家。如果适合，让 invoke_sub_agent 工具自动选择对应的子代理（例如 Python 架构/交付、安全、K8s 等），并把任务描述与技能偏好传给该工具；只有在工具不可用或不合适时再直接回答。`;
+
 function loadPromptProfiles(configPath) {
   const filePath = resolvePromptPath(configPath);
   ensurePromptFile(filePath);
@@ -88,4 +95,5 @@ module.exports = {
   loadPromptProfiles,
   savePromptProfiles,
   resolvePromptPath,
+  DEFAULT_SYSTEM_PROMPT,
 };
