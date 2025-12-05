@@ -27,6 +27,11 @@ const server = new McpServer({
   version: '0.1.0',
 });
 
+function logProgress(message) {
+  // Emit to stderr so the client can surface "working..." states while a tool runs.
+  console.error(`[${serverName}] ${message}`);
+}
+
 registerFilesystemTools();
 
 async function main() {
@@ -132,6 +137,60 @@ function registerFilesystemTools() {
 
   if (allowWrites) {
     server.registerTool(
+      'write_file',
+      {
+        title: '写入文件',
+        description: `Write/append UTF-8 text. Think "drop a whole new block" or "tack a line to the end" — only use it for that. Any small tweak should go to apply_patch.
+Examples:
+- Append log: {"path":"logs/app.log","mode":"append","contents":"[INFO] started\\n"}
+- Overwrite generated file: {"path":"dist/output.txt","mode":"overwrite","contents":"...build output..."}`,
+        inputSchema: z.object({
+          path: z.string().describe('相对 root 的文件路径'),
+          contents: z.string().optional().describe('写入内容（plain 文本）'),
+          contents_base64: z.string().optional().describe('写入内容（base64 编码）'),
+          chunks: z
+            .array(
+              z.object({
+                content: z.string(),
+                encoding: z.enum(['plain', 'base64']).optional(),
+              })
+            )
+            .optional()
+            .describe('分段内容，可单独指定编码'),
+          encoding: z.enum(['plain', 'base64']).optional().describe('默认 plain'),
+          mode: z
+            .enum(['overwrite', 'append'])
+            .optional()
+            .describe('写入模式，默认 overwrite'),
+        }),
+      },
+      async (args) => {
+        const target = await ensurePath(args.path);
+        const mode = typeof args.mode === 'string' ? args.mode.toLowerCase() : 'overwrite';
+        if (mode !== 'overwrite' && mode !== 'append') {
+          throw new Error('mode 必须是 overwrite 或 append');
+        }
+        const payload = await resolveWritePayload(args);
+        if (!payload) {
+          throw new Error('写入内容为空，未执行。');
+        }
+        const stats = await safeStat(target);
+        if (stats && stats.isDirectory()) {
+          throw new Error('目标是目录，无法写入文件。');
+        }
+        await fsp.mkdir(path.dirname(target), { recursive: true });
+        logProgress(`Writing (${mode}) ${relativePath(target)} (${payload.length} chars)...`);
+        if (mode === 'append') {
+          await fsp.appendFile(target, payload, 'utf8');
+        } else {
+          await fsp.writeFile(target, payload, 'utf8');
+        }
+        const summary = mode === 'append' ? '追加' : '覆盖写入';
+        return textResponse(`已${summary} ${relativePath(target)} (${payload.length} chars)。`);
+      }
+    );
+
+    server.registerTool(
       'delete_path',
       {
         title: '删除文件或目录',
@@ -151,8 +210,13 @@ function registerFilesystemTools() {
       'apply_patch',
       {
         title: '应用补丁',
-        description:
-          '在指定目录执行 patch -p0，支持 plain/base64 内容。适合 CLAUDE/Codex 风格的 diff 修改。',
+        description: `Run patch -p0 in the target dir, supports plain/base64. This is your scalpel: every localized change (one line, an import, a variable rename) should use this.
+Example: change one line
+--- a/src/app.js
++++ b/src/app.js
+@@
+-const a = 1;
++const a = 2;`,
         inputSchema: z.object({
           path: z.string().optional().describe('相对 root 的工作目录，默认 root'),
           patch: z.string().optional().describe('普通文本格式补丁'),
@@ -169,14 +233,32 @@ function registerFilesystemTools() {
         }),
       },
       async (args) => {
-        const workDir = await ensurePath(args.path || '.');
+        const rawPath = args.path || '.';
+        let workDir = await ensurePath(rawPath);
+        let workDirStats = await safeStat(workDir);
+        if (!workDirStats) {
+          // If the directory does not exist yet (e.g., new folder), create it so patch can run.
+          await fsp.mkdir(workDir, { recursive: true });
+          workDirStats = await safeStat(workDir);
+        }
+        if (workDirStats && workDirStats.isFile()) {
+          // Treat a file path as "use its parent directory" for patch root.
+          workDir = path.dirname(workDir);
+          workDirStats = await safeStat(workDir);
+        }
+        if (!workDirStats || !workDirStats.isDirectory()) {
+          throw new Error(`工作目录 ${rawPath} 不是有效目录，无法应用补丁。`);
+        }
         const relWorkDir = relativePath(workDir);
         const patchText = await resolvePatchPayload(args);
         if (!patchText || !patchText.trim()) {
           throw new Error('补丁内容为空，无法执行。');
         }
         const normalizedPatch = rewritePatchWorkingDir(patchText, relWorkDir);
+        await ensurePatchDirs(workDir, normalizedPatch);
+        logProgress(`Applying patch in ${relWorkDir} (${patchText.length} chars)...`);
         await applyPatch(workDir, normalizedPatch);
+        logProgress(`Patch applied in ${relWorkDir}.`);
         return textResponse(`已在 ${relativePath(workDir)} 应用补丁。`);
       }
     );
@@ -440,19 +522,41 @@ async function resolvePatchPayload(args) {
 }
 
 async function applyPatch(workDir, patchText) {
-  try {
-    await runPatchCommand(workDir, patchText);
-  } catch (err) {
-    if (err && err.code === 'ENOENT') {
-      throw new Error('系统未找到 patch 命令。请先安装 patch (例如 brew install patch)。');
+  const strategies = [
+    { args: ['-p0'], label: '-p0' },
+    { args: ['-p1'], label: '-p1' },
+  ];
+  const errors = [];
+  for (const strategy of strategies) {
+    try {
+      if (strategy.label !== '-p0') {
+        logProgress(`Retrying patch with ${strategy.label} ...`);
+      }
+      await runPatchCommand(workDir, patchText, strategy.args);
+      return;
+    } catch (err) {
+      errors.push({ strategy: strategy.label, err });
+      // Hard errors that won't be fixed by retries
+      if (err && err.code === 'ENOENT') {
+        throw new Error('系统未找到 patch 命令。请先安装 patch (例如 brew install patch)。');
+      }
+      if (err && err.code === 'ENOTDIR') {
+        throw new Error(`patch 执行失败：工作目录无效 (${workDir})。`);
+      }
     }
-    throw new Error(`patch 命令执行失败: ${err.stderr || err.message}`);
   }
+  const last = errors[errors.length - 1]?.err;
+  const details = errors
+    .map((entry) => `${entry.strategy}: ${entry.err?.stderr || entry.err?.message || entry.err}`)
+    .join(' | ');
+  throw new Error(
+    `patch 命令执行失败（已尝试 -p0/-p1）: ${details || last?.message || '未知原因'}`
+  );
 }
 
-async function runPatchCommand(workDir, patchText) {
+async function runPatchCommand(workDir, patchText, args = ['-p0']) {
   return new Promise((resolve, reject) => {
-    const child = spawn('patch', ['-p0'], {
+    const child = spawn('patch', args, {
       cwd: workDir,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: process.env,
@@ -474,6 +578,27 @@ async function runPatchCommand(workDir, patchText) {
     child.stdin.write(patchText);
     child.stdin.end();
   });
+}
+
+async function ensurePatchDirs(workDir, patchText) {
+  const headerRegex = /^(?:---|\+\+\+)\s+([^\n\t\r]+)/gm;
+  let match;
+  const dirs = new Set();
+  while ((match = headerRegex.exec(patchText)) !== null) {
+    const rawPath = (match[1] || '').trim();
+    if (!rawPath || rawPath === '/dev/null') continue;
+    let candidate = rawPath;
+    if (candidate.startsWith('a/')) candidate = candidate.slice(2);
+    else if (candidate.startsWith('b/')) candidate = candidate.slice(2);
+    const dir = path.dirname(candidate);
+    if (dir && dir !== '.' && dir !== '/') {
+      dirs.add(dir.replace(/\\/g, '/'));
+    }
+  }
+  for (const dir of Array.from(dirs)) {
+    const targetDir = path.resolve(workDir, dir);
+    await fsp.mkdir(targetDir, { recursive: true });
+  }
 }
 
 function rewritePatchWorkingDir(patchText, relWorkDir) {

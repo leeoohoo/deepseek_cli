@@ -65,7 +65,8 @@ function getDefaultServers(baseDir) {
       name: 'code_writer',
       script: path.join(CLI_ROOT, 'mcp_servers', 'filesystem-server.js'),
       args: '--root . --write --name code_writer',
-      description: '写入或删除项目内文件，支持 append/overwrite 模式。',
+      description:
+        '写入/追加/删除项目文件。局部修改请优先用 apply_patch（支持标准 diff）；write_file 仅在需要整块覆盖或追加日志时使用。',
     },
     {
       name: 'shell_tasks',
