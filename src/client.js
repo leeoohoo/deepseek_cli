@@ -27,6 +27,7 @@ class ModelClient {
       tools: toolset.map((tool) => tool.definition),
       onToken: options.onToken,
       onReasoning: options.onReasoning,
+      signal: options.signal,
     };
 
     const maxToolPasses = options.maxToolPasses ?? 60;

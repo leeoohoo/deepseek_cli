@@ -33,9 +33,21 @@ class OpenAIProvider extends ModelProvider {
 
     const client = this.#getClient();
     if (options.stream) {
-      return this.#streamResponse(client, payload, options.onToken, options.onReasoning);
+      return this.#streamResponse(
+        client,
+        payload,
+        options.onToken,
+        options.onReasoning,
+        options.signal
+      );
     }
-    return this.#singleResponse(client, payload, options.onToken, options.onReasoning);
+    return this.#singleResponse(
+      client,
+      payload,
+      options.onToken,
+      options.onReasoning,
+      options.signal
+    );
   }
 
   #getClient() {
@@ -71,8 +83,11 @@ class OpenAIProvider extends ModelProvider {
     return modelId.includes('reasoner') || modelId.includes('reasoning');
   }
 
-  async #streamResponse(client, payload, onToken, onReasoning) {
-    const stream = await client.chat.completions.create({ ...payload, stream: true });
+  async #streamResponse(client, payload, onToken, onReasoning, signal) {
+    const stream = await client.chat.completions.create(
+      { ...payload, stream: true },
+      { signal }
+    );
     const toolCalls = [];
     let accumulated = '';
     let reasoningBuffer = '';
@@ -107,8 +122,8 @@ class OpenAIProvider extends ModelProvider {
     };
   }
 
-  async #singleResponse(client, payload, onToken, onReasoning) {
-    const response = await client.chat.completions.create(payload);
+  async #singleResponse(client, payload, onToken, onReasoning, signal) {
+    const response = await client.chat.completions.create(payload, { signal });
     const message = response.choices?.[0]?.message;
     const content = message?.content || '';
     if (content) {

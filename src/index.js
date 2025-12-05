@@ -397,18 +397,50 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
       const printer = createResponsePrinter(currentModel, streamResponses, {
         registerToolResult: (toolName, content) => toolHistory.add(toolName, content),
       });
-      const finalText = await client.chat(currentModel, session, {
-        stream: streamResponses,
-        onToken: printer.onToken,
-        onReasoning: printer.onReasoning,
-        onToolCall: printer.onToolCall,
-        onToolResult: printer.onToolResult,
-      });
+
+      const controller = new AbortController();
+      const { signal } = controller;
+      const wasRaw = process.stdin.isRaw;
+      const keyHandler = (ch, key) => {
+        if (key && key.name === 'escape') {
+          if (!signal.aborted) {
+            process.stdout.write(colors.yellow('\n(已中止)\n'));
+            controller.abort();
+          }
+        }
+      };
+      if (process.stdin.isTTY) {
+        process.stdin.on('keypress', keyHandler);
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+      }
+
+      let finalText;
+      try {
+        finalText = await client.chat(currentModel, session, {
+          stream: streamResponses,
+          onToken: printer.onToken,
+          onReasoning: printer.onReasoning,
+          onToolCall: printer.onToolCall,
+          onToolResult: printer.onToolResult,
+          signal,
+        });
+      } finally {
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(wasRaw);
+          process.stdin.removeListener('keypress', keyHandler);
+        }
+      }
+
       summaryManager.maybeSummarize(session, client, currentModel);
       printer.onComplete(finalText);
     } catch (err) {
       session.popLast();
-      console.error(colors.yellow(`Request failed: ${err.message}`));
+      if (err.name === 'AbortError' || err.message.includes('aborted')) {
+        console.log(colors.yellow('对话已由用户中止。'));
+      } else {
+        console.error(colors.yellow(`Request failed: ${err.message}`));
+      }
     }
   }
   rl.close();
@@ -1182,7 +1214,7 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
       previewInterval = null;
     }
     if (previewLineActive) {
-      process.stdout.write('\r');
+      process.stdout.write('\r\x1b[K');
       previewLineActive = false;
     }
   };
@@ -1207,7 +1239,9 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
       if (!chunk) return;
       buffer += chunk;
       if (streamEnabled) {
-        ensureReasoningClosed();
+        if (reasoningStreamActive) {
+          ensureReasoningClosed();
+        }
         if (streamShowRaw) {
           process.stdout.write(chunk);
         } else {
