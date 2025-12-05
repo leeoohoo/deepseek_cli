@@ -5,6 +5,8 @@ const colors = {
   yellow: (text) => `\x1b[33m${text}\x1b[0m`,
   blue: (text) => `\x1b[34m${text}\x1b[0m`,
   dim: (text) => `\x1b[2m${text}\x1b[0m`,
+  bold: (text) => `\x1b[1m${text}\x1b[0m`,
+  italic: (text) => `\x1b[3m${text}\x1b[0m`,
 };
 
 module.exports = colors;

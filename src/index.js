@@ -8,6 +8,7 @@ const { ChatSession } = require('./session');
 const { ModelClient } = require('./client');
 const colors = require('./colors');
 const { expandHomePath } = require('./utils');
+const { renderMarkdown } = require('./markdown');
 const { createSubAgentManager } = require('./subagents');
 const { selectAgent } = require('./subagents/selector');
 const { setSubAgentContext } = require('./subagents/runtime');
@@ -329,6 +330,7 @@ async function chatLoop(initialClient, initialModel, session, options = {}) {
       subAgents: subAgentManager,
       client,
       currentModel,
+      toolHistory,
     });
     if (autoHandled) {
       continue;
@@ -1092,6 +1094,54 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
   let reasoningBuffer = '';
   let reasoningStreamActive = false;
   let reasoningShownInStream = false;
+  const activeTools = new Map();
+  let toolLineVisible = false;
+  let toolLineLength = 0;
+  const formatActiveTools = () => {
+    if (activeTools.size === 0) return '';
+    const entries = Array.from(activeTools.entries()).map(([tool, count]) =>
+      `${tool}${count > 1 ? `×${count}` : ''}`
+    );
+    return entries.join(', ');
+  };
+  const stripAnsi = (value) => value.replace(/\x1b\[[0-9;]*m/g, '');
+  const clearToolLine = () => {
+    if (!streamEnabled || !toolLineVisible) {
+      return;
+    }
+    const blank = ' '.repeat(toolLineLength);
+    process.stdout.write(`\r${blank}\r`);
+    toolLineVisible = false;
+    toolLineLength = 0;
+  };
+  const updateToolStatus = () => {
+    if (!streamEnabled) return;
+    const summary = formatActiveTools();
+    if (!summary) {
+      clearToolLine();
+      return;
+    }
+    const line = colors.dim(`[tools] ${summary} … (/tool 查看详情)`);
+    const plain = stripAnsi(line);
+    const padding = toolLineLength > plain.length ? ' '.repeat(toolLineLength - plain.length) : '';
+    process.stdout.write(`\r${line}${padding}`);
+    toolLineVisible = true;
+    toolLineLength = plain.length;
+  };
+  const noteToolStart = (tool) => {
+    activeTools.set(tool, (activeTools.get(tool) || 0) + 1);
+    updateToolStatus();
+  };
+  const noteToolDone = (tool) => {
+    if (!activeTools.has(tool)) return;
+    const next = activeTools.get(tool) - 1;
+    if (next > 0) {
+      activeTools.set(tool, next);
+    } else {
+      activeTools.delete(tool);
+    }
+    updateToolStatus();
+  };
   if (streamEnabled) {
     console.log(colors.magenta(`\n[${model}]`));
   }
@@ -1114,9 +1164,10 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
   const printToolInfo = (text) => {
     if (streamEnabled) {
       ensureReasoningClosed();
-      process.stdout.write('\n');
+      clearToolLine();
     }
     console.log(text);
+    updateToolStatus();
   };
   return {
     onToken: (chunk) => {
@@ -1139,47 +1190,34 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
         process.stdout.write(colors.dim(chunk));
       }
     },
-    onToolCall: ({ tool, args }) => {
-      const header = colors.blue(`[tool:${tool}]`);
-      const formatted = formatToolCallArgs(args);
-      printToolInfo(header);
-      formatted.lines.forEach((line) => {
-        printToolInfo(colors.dim(`  ${line}`));
-      });
-      formatted.previews.forEach((preview) => {
-        const { preview: text, truncated } = summarizeToolPreview(preview.text);
-        printToolInfo(colors.dim(`  ↳ ${preview.label || preview.key} 预览:`));
-        printToolInfo(text);
-        if (truncated) {
-          printToolInfo(colors.dim('  ...内容较长，已折叠预览。'));
-        }
-      });
+    onToolCall: ({ tool }) => {
+      noteToolStart(tool);
     },
     onToolResult: ({ tool, result }) => {
       const normalized = formatToolResult(result);
+      let storedContent = normalized;
+      let hint = colors.dim('执行完成，使用 /tool 查看输出。');
       if (shouldHideToolResult(tool)) {
         const summary = formatHiddenToolSummary(normalized);
-        if (registerToolResult) {
-          registerToolResult(tool, summary.historyText);
-        }
-        const label = colors.green(`↳ ${tool}:`);
-        printToolInfo(`${label}\n${summary.preview}`);
-        return;
+        storedContent = summary.historyText;
+        hint = colors.dim(summary.preview);
       }
-      const { preview, truncated } = summarizeToolPreview(normalized);
-      const entryId = registerToolResult ? registerToolResult(tool, normalized) : null;
-      const label = colors.green(`↳ ${tool}:`);
-      printToolInfo(`${label}\n${preview}`);
-      if (truncated) {
-        const hint = entryId
-          ? colors.dim(`内容较长，使用 /tool ${entryId} 查看完整输出。`)
-          : colors.dim('内容较长，已折叠。');
-        printToolInfo(hint);
-      }
+      const entryId = registerToolResult ? registerToolResult(tool, storedContent) : null;
+      const label = colors.green(`↳ ${tool}`);
+      const suffix = entryId ? `${hint} ${colors.dim(`(/tool ${entryId})`)}` : hint;
+      printToolInfo(`${label} ${suffix}`);
+      noteToolDone(tool);
     },
     onComplete: (finalText) => {
       if (streamEnabled) {
         ensureReasoningClosed();
+        clearToolLine();
+        const formattedSource = finalText || buffer;
+        if (formattedSource) {
+          console.log(colors.dim('\n┈ 结果 (Markdown) ┈'));
+          console.log(renderMarkdown(formattedSource));
+          console.log('');
+        }
       }
       if (reasoningBuffer && (!streamEnabled || !reasoningShownInStream)) {
         printReasoningBlock();
@@ -1197,50 +1235,10 @@ function createResponsePrinter(model, streamEnabled, options = {}) {
   };
 }
 
-function formatToolCallArgs(args) {
-  if (!args || typeof args !== 'object') {
-    return { lines: ['{}'], previews: [] };
-  }
-  const simplified = {};
-  const previews = [];
-  Object.entries(args).forEach(([key, value]) => {
-    if (typeof value === 'string' && shouldPreviewArg(value)) {
-      simplified[key] = `<${value.length} chars, preview below>`;
-      previews.push({ key, label: key, text: value });
-    } else {
-      simplified[key] = value;
-    }
-  });
-  const json = JSON.stringify(simplified, null, 2);
-  return {
-    lines: json.split(/\r?\n/),
-    previews,
-  };
-}
-
-function shouldPreviewArg(value) {
-  if (typeof value !== 'string') {
-    return false;
-  }
-  if (value.length < 120) {
-    return false;
-  }
-  if (!value.includes('\n')) {
-    return false;
-  }
-  return looksLikeDiff(value);
-}
-
-function looksLikeDiff(text) {
-  if (!text || typeof text !== 'string') {
-    return false;
-  }
-  return /(^|\n)(?:\*\*\*|\+\+\+|---|@@)/.test(text);
-}
-
 function printResponse(model, text) {
   const border = '-'.repeat(Math.min(60, Math.max(10, model.length + 4)));
-  console.log(`\n${colors.magenta(`[${model}]`)}\n${border}\n${text}\n`);
+  const formatted = renderMarkdown(text || '');
+  console.log(`\n${colors.magenta(`[${model}]`)}\n${border}\n${formatted}\n`);
 }
 
 function formatToolResult(result) {
@@ -1258,23 +1256,6 @@ function formatToolResult(result) {
     }
   }
   return String(result);
-}
-
-function summarizeToolPreview(text) {
-  const lines = text.split(/\r?\n/);
-  const limitLines = 12;
-  const limitChars = 2000;
-  const truncated = lines.length > limitLines || text.length > limitChars;
-  if (!truncated) {
-    return { preview: text, truncated: false };
-  }
-  const sliced = lines.slice(0, limitLines);
-  const remainder = lines.length - sliced.length;
-  let preview = sliced.join('\n');
-  if (remainder > 0) {
-    preview += `\n...（${remainder} 行已折叠）`;
-  }
-  return { preview, truncated: true };
 }
 
 function shouldHideToolResult(toolName) {
